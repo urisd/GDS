@@ -153,14 +153,34 @@ const PostComposer = () => {
         }
     }, [dispatch]);
 
-    const handleSubmit = () => {
-        if (!text.trim() || text.length > MAX_CHARS) return;
-        if (currentLevel === 'danger') return;
+    const handleSubmit = async () => {
+    if (!text.trim() || text.length > MAX_CHARS) return;
+    if (currentLevel === 'danger') return;
 
-        dispatch(addPost(text));
-        setText('');
-        dispatch(clearNudge());
-    };
+    // 1. FastAPI 서버로 데이터 전송 및 DB 저장
+    try {
+        const response = await fetch('https://gds-fastapi-app-f2ahc6bzg6eyfach.koreacentral-01.azurewebsites.net/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                content: text,
+                author: 'ai9', // 현재 로그인된 유저가 있다면 그 값을 사용
+                nudge_level: currentLevel,
+                probability: probability
+            })
+        });
+
+        if (response.ok) {
+            const newPost = await response.json();
+            // 2. 서버 저장 성공 시 리덕스 업데이트 (화면에 즉시 반영)
+            dispatch(addPost(newPost)); 
+            setText('');
+            dispatch(clearNudge());
+        }
+    } catch (error) {
+        alert("게시글 저장에 실패했습니다.");
+    }
+};
 
     const isDisabled = text.length === 0 || text.length > MAX_CHARS || currentLevel === 'danger';
 

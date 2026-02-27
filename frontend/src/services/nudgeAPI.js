@@ -9,19 +9,20 @@ const API_BASE = 'http://localhost:5000';
 
 // ============================================================
 // 1) 텍스트 분석
-// ============================================================
+// services/nudgeAPI.js
 export const analyzeText = async (text) => {
-    try {
-        const res = await fetch(`${API_BASE}/api/analyze`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text }),
-        });
-        if (!res.ok) throw new Error('Server error');
-        return await res.json();
-    } catch {
-        return localAnalyze(text);
-    }
+  try {
+    const response = await fetch('http://127.0.0.1:8000/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text })
+    });
+    return await response.json(); 
+    // 반환값 예시: { nudgeLevel: 'warning', message: '비속어가 포함되어 있습니다.', probability: 0.85 }
+  } catch (error) {
+    console.error("분석 실패:", error);
+    return { nudgeLevel: 'safe', message: '', probability: 0 };
+  }
 };
 
 function localAnalyze(text) {
