@@ -46,69 +46,6 @@
             "likes": 156,
             "commentCount": 47,
             "comments": []
-        },
-        {
-            "id": 3,
-            "author": "지원",
-            "avatar": "JW",
-            "avatarBg": "#10b981",
-            "avatarColor": "#fff",
-            "isArtist": false,
-            "content": "#to_NewJeans 오늘 시험 끝났어요!! 뉴진스 노래 들으면서 공부했더니 합격했어요 ㅠㅠ 고마워요 💚",
-            "createdAt": "1시간 전",
-            "likes": 1203,
-            "commentCount": 89,
-            "hasArtistReply": true,
-            "comments": [
-                {
-                    "id": 301,
-                    "author": "하니",
-                    "avatar": "HN",
-                    "avatarBg": "#00FAD9",
-                    "avatarColor": "#1a1a1a",
-                    "isArtist": true,
-                    "content": "축하해요!! 🎊🎊 진짜 대단하다 👏",
-                    "createdAt": "45분 전",
-                    "likes": 892
-                }
-            ]
-        },
-        {
-            "id": 4,
-            "author": "다연",
-            "avatar": "DY",
-            "avatarBg": "#8b5cf6",
-            "avatarColor": "#fff",
-            "isArtist": false,
-            "content": "오늘 팬미팅 다녀왔는데 진짜 꿈같았어요 ㅠㅠ 멤버들 하나하나 다 예쁘고 착하고... 평생 팬 할게요 💜",
-            "createdAt": "2시간 전",
-            "likes": 532,
-            "commentCount": 34,
-            "comments": []
-        },
-        {
-            "id": 5,
-            "author": "하니",
-            "avatar": "HN",
-            "avatarBg": "#00FAD9",
-            "avatarColor": "#1a1a1a",
-            "isArtist": true,
-            "content": "비가 오는 날이네요 ☔️ 우산 꼭 챙기세요~ 감기 조심! 🤧💗",
-            "createdAt": "3시간 전",
-            "likes": 4120,
-            "commentCount": 567,
-            "comments": [
-                {
-                    "id": 501,
-                    "author": "서윤",
-                    "avatar": "SY",
-                    "avatarBg": "#ec4899",
-                    "isArtist": false,
-                    "content": "하니야 너도 감기 조심해!! 💕",
-                    "createdAt": "2시간 전",
-                    "likes": 156
-                }
-            ]
         }
     ],
     "communities": [
