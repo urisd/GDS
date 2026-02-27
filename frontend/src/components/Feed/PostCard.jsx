@@ -10,12 +10,9 @@ import {
   FaEllipsis,
   FaImage,
   FaChartBar,
-  FaBold,
-  FaItalic,
-  FaUnderline,
-  FaFaceSmile,
-  FaAt,
 } from 'react-icons/fa6';
+
+const API = 'https://gds-fastapi-app-f2ahc6bzg6eyfach.koreacentral-01.azurewebsites.net';
 
 const Card = styled.article`
   background: ${({ theme }) => theme.bgSecondary};
@@ -252,6 +249,40 @@ const CommentCharCount = styled.span`
   color: ${({ isOver, theme }) => (isOver ? theme.dangerText : theme.textTertiary)};
 `;
 
+const ImagePreview = styled.div`
+  position: relative;
+  display: inline-block;
+  margin-top: 8px;
+
+  img {
+    max-height: 120px;
+    max-width: 100%;
+    border-radius: 8px;
+    object-fit: cover;
+  }
+`;
+
+const RemoveImageBtn = styled.button`
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #333;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const HiddenInput = styled.input`
+  display: none;
+`;
+
 const CommentItem = styled.div`
   display: flex;
   gap: 10px;
@@ -358,6 +389,8 @@ const PostCard = ({ post }) => {
   const [comments, setComments] = useState(post.comments || []);
   const [newComment, setNewComment] = useState('');
   const [commentCount, setCommentCount] = useState(post.commentCount || (post.comments ? post.comments.length : 0));
+  const [commentImage, setCommentImage] = useState(null);
+  const fileInputRef = useRef(null);
 
   const handleLike = () => {
     dispatch(toggleLike(post.id));
@@ -367,13 +400,20 @@ const PostCard = ({ post }) => {
     setShowComments(!showComments);
   };
 
-  const handleAddComment = (e) => {
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setCommentImage(url);
+  };
+
+  const handleAddComment = async (e) => {
     e.preventDefault();
     const trimmed = newComment.trim();
-    if (!trimmed) return;
+    if (!trimmed && !commentImage) return;
     if (trimmed.length > MAX_COMMENT_CHARS) return;
 
-    const nextComment = {
+    const tempComment = {
       id: Date.now(),
       author: '사용자',
       avatar: 'ME',
@@ -381,21 +421,37 @@ const PostCard = ({ post }) => {
       avatarColor: '#ffffff',
       isArtist: false,
       content: trimmed,
+      image: commentImage,
       createdAt: '방금 전',
       likes: 0,
     };
 
-    setComments([...comments, nextComment]);
+    setComments((prev) => [...prev, tempComment]);
     setNewComment('');
-    setCommentCount(commentCount + 1);
-    if (!showComments) {
-      setShowComments(true);
+    setCommentImage(null);
+    setCommentCount((prev) => prev + 1);
+    if (!showComments) setShowComments(true);
+
+    try {
+      await fetch(`${API}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: trimmed, user: '사용자', postId: post.id }),
+      });
+    } catch (error) {
+      console.error('댓글 저장 실패:', error);
     }
   };
 
-  const handleDeleteComment = (id) => {
+  const handleDeleteComment = async (id) => {
     setComments((prev) => prev.filter((c) => c.id !== id));
     setCommentCount((prev) => Math.max(0, prev - 1));
+
+    try {
+      await fetch(`${API}/comments/${id}`, { method: 'DELETE' });
+    } catch (error) {
+      console.error('댓글 삭제 실패:', error);
+    }
   };
 
   return (
@@ -446,9 +502,21 @@ const PostCard = ({ post }) => {
                 onChange={(e) => setNewComment(e.target.value)}
                 placeholder="댓글을 입력해 보세요..."
               />
+              {commentImage && (
+                <ImagePreview>
+                  <img src={commentImage} alt="첨부 이미지" />
+                  <RemoveImageBtn type="button" onClick={() => setCommentImage(null)}>✕</RemoveImageBtn>
+                </ImagePreview>
+              )}
               <CommentBottom>
                 <CommentTools>
-                  <CommentToolBtn type="button" aria-label="사진">
+                  <HiddenInput
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleImageSelect}
+                  />
+                  <CommentToolBtn type="button" aria-label="사진" onClick={() => fileInputRef.current.click()}>
                     <FaImage />
                   </CommentToolBtn>
                   <CommentToolBtn type="button" aria-label="투표">
@@ -461,7 +529,7 @@ const PostCard = ({ post }) => {
                   </CommentCharCount>
                   <CommentSubmit
                     type="submit"
-                    disabled={!newComment.trim() || newComment.length > MAX_COMMENT_CHARS}
+                    disabled={(!newComment.trim() && !commentImage) || newComment.length > MAX_COMMENT_CHARS}
                   >
                     게시
                   </CommentSubmit>
@@ -482,6 +550,9 @@ const PostCard = ({ post }) => {
                   {comment.isArtist && <ArtistBadge small>Artist</ArtistBadge>}
                 </CommentAuthor>
                 <CommentText>{comment.content}</CommentText>
+                {comment.image && (
+                  <img src={comment.image} alt="댓글 이미지" style={{ maxHeight: '120px', borderRadius: '8px', marginTop: '6px', display: 'block' }} />
+                )}
                 <CommentMeta>
                   <CommentTime>{comment.createdAt}</CommentTime>
                   <CommentLike isArtist={comment.isArtist}>

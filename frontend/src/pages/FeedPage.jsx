@@ -8,17 +8,15 @@ import RightSidebar from '../components/RightSidebar/RightSidebar';
 
 const Layout = styled.div`
   display: flex;
+  justify-content: center;
   margin-top: ${({ theme }) => theme.headerHeight};
   min-height: calc(100vh - ${({ theme }) => theme.headerHeight});
 `;
 
 const MainFeed = styled.main`
-  flex: 1;
-  margin-left: ${({ theme }) => theme.sidebarWidth};
-  margin-right: ${({ theme }) => theme.rightSidebarWidth};
-  max-width: 680px;
+  width: 680px;
+  flex-shrink: 0;
   padding: 0 24px;
-  margin-left: calc(${({ theme }) => theme.sidebarWidth} + (100% - ${({ theme }) => theme.sidebarWidth} - ${({ theme }) => theme.rightSidebarWidth} - 680px) / 2);
 `;
 
 const FeedTabs = styled.nav`

@@ -103,7 +103,7 @@ const Header = () => {
     <HeaderWrap>
       <HeaderLeft>
         <IconBtn aria-label="메뉴"><FaBars /></IconBtn>
-        <Logo>댓글 <span>넛지</span></Logo>
+        <Link to="/"><Logo>댓글 <span>넛지</span></Logo></Link>
       </HeaderLeft>
       <HeaderCenter>
         <SearchBar>

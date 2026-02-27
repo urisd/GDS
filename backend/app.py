@@ -1,21 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-댓글 넛지 시스템 — Flask API 서버 (v2)
-========================================
-- TF-IDF + 로지스틱 회귀 모델로 실시간 악성 댓글 분석
-- SQLite DB로 게시글/경고 무시 이력 저장
-- 관리자 모니터링 API (flagged 댓글, 삭제 기능)
+댓글 넛지 시스템 — FastAPI 서버 (v3)
 """
 
 import os
-import sys
 import json
 import sqlite3
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 import pandas as pd
-from flask import Flask, request, jsonify, g
-from flask_cors import CORS
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -28,11 +25,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(BASE_DIR, "nudge.db")
 
-app = Flask(__name__)
-CORS(app)
-
 # ============================================================
-# 1. 모델 학습 (서버 시작 시)
+# 모델 전역 변수
 # ============================================================
 model = None
 vectorizer = None
@@ -40,9 +34,7 @@ model_accuracy = 0.0
 
 
 def train_model():
-    """train_preprocessed.tsv를 사용하여 모델을 학습합니다."""
     global model, vectorizer, model_accuracy
-
     tsv_path = os.path.join(DATA_DIR, "train_preprocessed.tsv")
     if not os.path.exists(tsv_path):
         print(f"⚠️  데이터 파일 없음: {tsv_path}")
@@ -53,15 +45,11 @@ def train_model():
     df = df.dropna(subset=["comments_clean", "hate"])
     print(f"   → {len(df)}건 로드 완료")
 
-    # 이진 분류: hate/offensive → 1 (악성), none → 0 (정상)
     df["is_malicious"] = df["hate"].apply(lambda x: 1 if x in ("hate", "offensive") else 0)
-
     X = df["comments_clean"]
     y = df["is_malicious"]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     print("🔤 TF-IDF 벡터화 중...")
     vectorizer = TfidfVectorizer(max_features=10000)
@@ -79,14 +67,11 @@ def train_model():
 
 
 # ============================================================
-# 2. SQLite 데이터베이스
+# DB 초기화
 # ============================================================
 def init_db():
-    """데이터베이스 테이블을 초기화합니다."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-
-    # 게시글 테이블
     c.execute("""
         CREATE TABLE IF NOT EXISTS posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,8 +84,6 @@ def init_db():
             deleted_at TEXT DEFAULT NULL
         )
     """)
-
-    # 넛지 로그 테이블 (경고를 무시하고 게시한 기록)
     c.execute("""
         CREATE TABLE IF NOT EXISTS nudge_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,44 +98,78 @@ def init_db():
             FOREIGN KEY (post_id) REFERENCES posts(id)
         )
     """)
-
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            author TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            is_deleted INTEGER DEFAULT 0,
+            FOREIGN KEY (post_id) REFERENCES posts(id)
+        )
+    """)
     conn.commit()
     conn.close()
     print("🗄️  DB 초기화 완료")
 
 
 def get_db():
-    """Flask 요청 컨텍스트에서 DB 커넥션을 얻습니다."""
-    if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-    return g.db
-
-
-@app.teardown_appcontext
-def close_db(exception):
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # ============================================================
-# 3. 텍스트 분석 API
+# FastAPI 앱
 # ============================================================
-@app.route("/api/analyze", methods=["POST"])
-def analyze():
-    """텍스트의 악성 확률을 분석합니다."""
-    data = request.get_json()
-    text = data.get("text", "").strip()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    train_model()
+    yield
 
+app = FastAPI(title="댓글 넛지 API", version="3.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# Pydantic 스키마
+# ============================================================
+class AnalyzeRequest(BaseModel):
+    text: str = ""
+
+class PostCreate(BaseModel):
+    content: str
+    author: str = "익명"
+    community: str = "전체"
+    nudgeLevel: str = "safe"
+    probability: float = 0.0
+    detectedWords: list = []
+
+class DeletePost(BaseModel):
+    deletedBy: str = "관리자"
+
+class CommentCreate(BaseModel):
+    content: str
+    user: str = "사용자"
+    postId: int
+
+
+# ============================================================
+# 분석 API
+# ============================================================
+@app.post("/api/analyze")
+def analyze(req: AnalyzeRequest):
+    text = req.text.strip()
     if not text:
-        return jsonify({
-            "probability": 0.0,
-            "nudgeLevel": "safe",
-            "nudgeMessage": "",
-            "detectedWords": [],
-            "isLocal": False,
-        })
+        return {"probability": 0.0, "nudgeLevel": "safe", "nudgeMessage": "", "detectedWords": [], "isLocal": False}
 
     if model is not None and vectorizer is not None:
         text_vec = vectorizer.transform([text])
@@ -162,197 +179,142 @@ def analyze():
         probability = 0.1
         is_local = True
 
-    # 위험 단어 감지
     danger_words = ["병신", "씨발", "개새끼", "죽어", "자살", "새끼", "지랄", "꺼져라"]
     warning_words = ["바보", "멍청", "짜증", "쓰레기", "노잼", "꺼져", "닥쳐", "못생"]
-    detected = []
-    for w in danger_words:
-        if w in text:
-            detected.append(w)
-    for w in warning_words:
-        if w in text:
-            detected.append(w)
+    detected = [w for w in danger_words + warning_words if w in text]
 
-    # 넛지 레벨 결정
     if probability >= 0.9:
-        level = "danger"
-        message = "🚫 명백한 욕설/비방이 감지되었습니다. 게시가 차단됩니다."
+        level, message = "danger", "🚫 명백한 욕설/비방이 감지되었습니다. 게시가 차단됩니다."
     elif probability >= 0.7:
-        level = "warning"
-        message = "⚠️ 불쾌감을 줄 수 있는 표현이 감지되었어요. 부드럽게 표현해보는 건 어떨까요?"
+        level, message = "warning", "⚠️ 불쾌감을 줄 수 있는 표현이 감지되었어요. 부드럽게 표현해보는 건 어떨까요?"
     else:
-        level = "safe"
-        message = ""
+        level, message = "safe", ""
 
-    return jsonify({
-        "probability": round(probability, 4),
-        "nudgeLevel": level,
-        "nudgeMessage": message,
-        "detectedWords": detected,
-        "isLocal": is_local,
-    })
+    return {"probability": round(probability, 4), "nudgeLevel": level, "nudgeMessage": message, "detectedWords": detected, "isLocal": is_local}
 
 
 # ============================================================
-# 4. 게시글 CRUD API
+# 게시글 API
 # ============================================================
-@app.route("/api/posts", methods=["GET"])
+@app.get("/api/posts")
 def get_posts():
-    """게시글 목록 조회 (삭제되지 않은 것만)"""
     db = get_db()
-    rows = db.execute(
-        "SELECT * FROM posts WHERE is_deleted = 0 ORDER BY created_at DESC"
-    ).fetchall()
-    posts = [dict(r) for r in rows]
-    return jsonify(posts)
+    rows = db.execute("SELECT * FROM posts WHERE is_deleted = 0 ORDER BY created_at DESC").fetchall()
+    db.close()
+    return [dict(r) for r in rows]
 
 
-@app.route("/api/posts", methods=["POST"])
-def create_post():
-    """게시글 작성 (넛지 분석 후 DB 저장)"""
-    data = request.get_json()
-    content = data.get("content", "").strip()
-    author = data.get("author", "익명")
-    community = data.get("community", "전체")
-    nudge_level = data.get("nudgeLevel", "safe")
-    probability = data.get("probability", 0.0)
-    detected_words = data.get("detectedWords", [])
-
-    if not content:
-        return jsonify({"error": "내용을 입력해주세요"}), 400
+@app.post("/api/posts", status_code=201)
+def create_post(req: PostCreate):
+    if not req.content.strip():
+        raise HTTPException(status_code=400, detail="내용을 입력해주세요")
 
     now = datetime.now().isoformat()
     db = get_db()
-
-    # 게시글 저장
     cursor = db.execute(
         "INSERT INTO posts (author, content, community, created_at) VALUES (?, ?, ?, ?)",
-        (author, content, community, now)
+        (req.author, req.content, req.community, now)
     )
     post_id = cursor.lastrowid
-
-    # 넛지 로그 저장 (경고/위험 무시한 경우)
-    ignored = 1 if nudge_level in ("warning", "danger") else 0
+    ignored = 1 if req.nudgeLevel in ("warning", "danger") else 0
     db.execute(
-        """INSERT INTO nudge_logs 
-           (post_id, author, content, nudge_level, probability, detected_words, ignored_warning, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (post_id, author, content, nudge_level, probability,
-         json.dumps(detected_words, ensure_ascii=False), ignored, now)
+        "INSERT INTO nudge_logs (post_id, author, content, nudge_level, probability, detected_words, ignored_warning, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (post_id, req.author, req.content, req.nudgeLevel, req.probability, json.dumps(req.detectedWords, ensure_ascii=False), ignored, now)
     )
     db.commit()
-
-    return jsonify({
-        "id": post_id,
-        "author": author,
-        "content": content,
-        "community": community,
-        "created_at": now,
-        "nudgeLevel": nudge_level,
-        "ignoredWarning": bool(ignored),
-    }), 201
+    db.close()
+    return {"id": post_id, "author": req.author, "content": req.content, "community": req.community, "created_at": now}
 
 
-@app.route("/api/posts/<int:post_id>", methods=["DELETE"])
-def delete_post(post_id):
-    """게시글 삭제 (관리자용, 소프트 삭제)"""
-    data = request.get_json() or {}
-    deleted_by = data.get("deletedBy", "관리자")
+@app.delete("/api/posts/{post_id}")
+def delete_post(post_id: int, req: DeletePost):
     now = datetime.now().isoformat()
-
     db = get_db()
-    db.execute(
-        "UPDATE posts SET is_deleted = 1, deleted_by = ?, deleted_at = ? WHERE id = ?",
-        (deleted_by, now, post_id)
-    )
+    db.execute("UPDATE posts SET is_deleted = 1, deleted_by = ?, deleted_at = ? WHERE id = ?", (req.deletedBy, now, post_id))
     db.commit()
-    return jsonify({"message": f"게시글 #{post_id} 삭제 완료", "deletedAt": now})
+    db.close()
+    return {"message": f"게시글 #{post_id} 삭제 완료", "deletedAt": now}
 
 
 # ============================================================
-# 5. 관리자 모니터링 API
+# 댓글 API
 # ============================================================
-@app.route("/api/admin/flagged", methods=["GET"])
+@app.get("/api/posts/{post_id}/comments")
+def get_comments(post_id: int):
+    db = get_db()
+    rows = db.execute("SELECT * FROM comments WHERE post_id = ? AND is_deleted = 0 ORDER BY created_at ASC", (post_id,)).fetchall()
+    db.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/comments", status_code=201)
+def create_comment(req: CommentCreate):
+    if not req.content.strip():
+        raise HTTPException(status_code=400, detail="내용을 입력해주세요")
+    now = datetime.now().isoformat()
+    db = get_db()
+    cursor = db.execute(
+        "INSERT INTO comments (post_id, author, content, created_at) VALUES (?, ?, ?, ?)",
+        (req.postId, req.user, req.content, now)
+    )
+    comment_id = cursor.lastrowid
+    db.commit()
+    db.close()
+    return {"id": comment_id, "postId": req.postId, "author": req.user, "content": req.content, "created_at": now}
+
+
+@app.delete("/comments/{comment_id}")
+def delete_comment(comment_id: int):
+    db = get_db()
+    db.execute("UPDATE comments SET is_deleted = 1 WHERE id = ?", (comment_id,))
+    db.commit()
+    db.close()
+    return {"message": f"댓글 #{comment_id} 삭제 완료"}
+
+
+# ============================================================
+# 관리자 API
+# ============================================================
+@app.get("/api/admin/flagged")
 def get_flagged():
-    """경고를 무시하고 게시된 댓글 목록"""
     db = get_db()
-    rows = db.execute("""
-        SELECT nl.*, p.is_deleted 
-        FROM nudge_logs nl
-        LEFT JOIN posts p ON nl.post_id = p.id
-        WHERE nl.ignored_warning = 1
-        ORDER BY nl.created_at DESC
-    """).fetchall()
-    flagged = [dict(r) for r in rows]
-    return jsonify(flagged)
+    rows = db.execute("SELECT nl.*, p.is_deleted FROM nudge_logs nl LEFT JOIN posts p ON nl.post_id = p.id WHERE nl.ignored_warning = 1 ORDER BY nl.created_at DESC").fetchall()
+    db.close()
+    return [dict(r) for r in rows]
 
 
-@app.route("/api/admin/stats", methods=["GET"])
+@app.get("/api/admin/stats")
 def get_stats():
-    """관리자 대시보드 통계"""
     db = get_db()
-
     total_posts = db.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
     deleted_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_deleted = 1").fetchone()[0]
     total_checks = db.execute("SELECT COUNT(*) FROM nudge_logs").fetchone()[0]
-    warnings_ignored = db.execute(
-        "SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'warning' AND ignored_warning = 1"
-    ).fetchone()[0]
-    dangers_ignored = db.execute(
-        "SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'danger' AND ignored_warning = 1"
-    ).fetchone()[0]
-    safe_posts = db.execute(
-        "SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'safe'"
-    ).fetchone()[0]
-
-    return jsonify({
-        "totalPosts": total_posts,
-        "deletedPosts": deleted_posts,
-        "activePosts": total_posts - deleted_posts,
-        "totalChecks": total_checks,
-        "warningsIgnored": warnings_ignored,
-        "dangersIgnored": dangers_ignored,
-        "safePosts": safe_posts,
-        "modelAccuracy": round(model_accuracy, 4),
-        "modelLoaded": model is not None,
-    })
+    warnings_ignored = db.execute("SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'warning' AND ignored_warning = 1").fetchone()[0]
+    dangers_ignored = db.execute("SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'danger' AND ignored_warning = 1").fetchone()[0]
+    safe_posts = db.execute("SELECT COUNT(*) FROM nudge_logs WHERE nudge_level = 'safe'").fetchone()[0]
+    db.close()
+    return {"totalPosts": total_posts, "deletedPosts": deleted_posts, "activePosts": total_posts - deleted_posts, "totalChecks": total_checks, "warningsIgnored": warnings_ignored, "dangersIgnored": dangers_ignored, "safePosts": safe_posts, "modelAccuracy": round(model_accuracy, 4), "modelLoaded": model is not None}
 
 
-@app.route("/api/admin/posts", methods=["GET"])
+@app.get("/api/admin/posts")
 def admin_all_posts():
-    """모든 게시글 (삭제된 것 포함)"""
     db = get_db()
     rows = db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
-    posts = [dict(r) for r in rows]
-    return jsonify(posts)
+    db.close()
+    return [dict(r) for r in rows]
 
 
-@app.route("/api/health", methods=["GET"])
+@app.get("/api/health")
 def health():
-    return jsonify({
-        "status": "ok",
-        "modelLoaded": model is not None,
-        "modelAccuracy": round(model_accuracy, 4),
-    })
+    return {"status": "ok", "modelLoaded": model is not None, "modelAccuracy": round(model_accuracy, 4)}
 
 
 # ============================================================
 # 서버 시작
 # ============================================================
 if __name__ == "__main__":
+    import uvicorn
     print("=" * 60)
-    print("🚀 댓글 넛지 API 서버 v2")
+    print("🚀 댓글 넛지 API 서버 v3 (FastAPI)")
     print("=" * 60)
-
-    init_db()
-    train_model()
-
-    print()
-    print("📡 서버:     http://localhost:5000")
-    print("📡 분석 API: POST /api/analyze")
-    print("📡 게시 API: POST /api/posts, GET /api/posts")
-    print("📡 관리자:   GET  /api/admin/flagged, /api/admin/stats")
-    print("📡 삭제:     DELETE /api/posts/<id>")
-    print("=" * 60)
-
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)
