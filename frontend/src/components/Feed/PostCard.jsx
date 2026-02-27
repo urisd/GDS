@@ -1,5 +1,5 @@
 import styled from 'styled-components';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { toggleLike } from '../../reducer/feedSlice';
 import { FaHeart, FaRegHeart, FaRegComment, FaShareFromSquare, FaEllipsis } from 'react-icons/fa6';
@@ -134,6 +134,64 @@ const CommentsSection = styled.div`
   padding: 0 16px 12px;
 `;
 
+const CommentForm = styled.form`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  border: 1px solid ${({ theme }) => theme.borderColor};
+  background: ${({ theme }) => theme.bgTertiary};
+`;
+
+const CommentInput = styled.textarea`
+  flex: 1;
+  min-height: 40px;
+  max-height: 72px;
+  padding: 8px 10px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  color: ${({ theme }) => theme.textPrimary};
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: none;
+  overflow-y: auto;
+  outline: none;
+
+  &:focus {
+    outline: none;
+  }
+`;
+
+const CommentSubmit = styled.button`
+  background: ${({ theme }) => theme.accent};
+  color: #0f0f0f;
+  border: none;
+  border-radius: 8px;
+  height: 40px;
+  padding: 0 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  transition: opacity ${({ theme }) => theme.transition}, transform ${({ theme }) => theme.transition};
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &:not(:disabled):active {
+    transform: translateY(1px);
+  }
+`;
+
 const CommentItem = styled.div`
   display: flex;
   gap: 10px;
@@ -179,6 +237,24 @@ const CommentMeta = styled.div`
   margin-top: 4px;
 `;
 
+const CommentDelete = styled.button`
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: ${({ theme }) => theme.textTertiary};
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background ${({ theme }) => theme.transition}, color ${({ theme }) => theme.transition};
+
+  &:hover {
+    background: ${({ theme }) => theme.bgHover};
+    color: ${({ theme }) => theme.textPrimary};
+  }
+`;
+
 const CommentTime = styled.span`
   font-size: 0.75rem;
   color: ${({ theme }) => theme.textTertiary};
@@ -217,9 +293,46 @@ const ViewAll = styled.button`
 const PostCard = ({ post }) => {
   const dispatch = useDispatch();
   const [showComments, setShowComments] = useState(post.comments && post.comments.length > 0);
+  const [comments, setComments] = useState(post.comments || []);
+  const [newComment, setNewComment] = useState('');
+  const [commentCount, setCommentCount] = useState(post.commentCount || (post.comments ? post.comments.length : 0));
 
   const handleLike = () => {
     dispatch(toggleLike(post.id));
+  };
+
+  const handleToggleComments = () => {
+    setShowComments(!showComments);
+  };
+
+  const handleAddComment = (e) => {
+    e.preventDefault();
+    const trimmed = newComment.trim();
+    if (!trimmed) return;
+
+    const nextComment = {
+      id: Date.now(),
+      author: '사용자',
+      avatar: 'ME',
+      avatarBg: '#3b82f6',
+      avatarColor: '#ffffff',
+      isArtist: false,
+      content: trimmed,
+      createdAt: '방금 전',
+      likes: 0,
+    };
+
+    setComments([...comments, nextComment]);
+    setNewComment('');
+    setCommentCount(commentCount + 1);
+    if (!showComments) {
+      setShowComments(true);
+    }
+  };
+
+  const handleDeleteComment = (id) => {
+    setComments((prev) => prev.filter((c) => c.id !== id));
+    setCommentCount((prev) => Math.max(0, prev - 1));
   };
 
   return (
@@ -248,18 +361,18 @@ const PostCard = ({ post }) => {
           {post.liked ? <FaHeart /> : <FaRegHeart />}
           <span>{post.likes?.toLocaleString()}</span>
         </ActionBtn>
-        <ActionBtn onClick={() => setShowComments(!showComments)}>
+        <ActionBtn onClick={handleToggleComments}>
           <FaRegComment />
-          <span>{post.commentCount || 0}</span>
+          <span>{commentCount}</span>
         </ActionBtn>
         <ActionBtn>
           <FaShareFromSquare />
         </ActionBtn>
       </CardActions>
 
-      {showComments && post.comments && post.comments.length > 0 && (
+      {showComments && (
         <CommentsSection>
-          {post.comments.map((comment) => (
+          {comments.map((comment) => (
             <CommentItem key={comment.id} isArtist={comment.isArtist}>
               <AvatarSm
                 src={`https://ui-avatars.com/api/?name=${comment.avatar}&background=${comment.avatarBg?.replace('#', '') || '818cf8'}&color=${comment.avatarColor?.replace('#', '') || 'fff'}&size=28`}
@@ -276,13 +389,29 @@ const PostCard = ({ post }) => {
                   <CommentLike isArtist={comment.isArtist}>
                     {comment.isArtist ? <FaHeart /> : <FaRegHeart />} {comment.likes}
                   </CommentLike>
+                  {comment.author === '사용자' && (
+                    <CommentDelete type="button" onClick={() => handleDeleteComment(comment.id)}>
+                      삭제
+                    </CommentDelete>
+                  )}
                 </CommentMeta>
               </CommentBody>
             </CommentItem>
           ))}
-          {post.commentCount > post.comments.length && (
-            <ViewAll>댓글 {post.commentCount}개 모두 보기</ViewAll>
+          {commentCount > comments.length && (
+            <ViewAll>댓글 {commentCount}개 모두 보기</ViewAll>
           )}
+
+          <CommentForm onSubmit={handleAddComment}>
+            <CommentInput
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              placeholder="댓글을 입력해 보세요..."
+            />
+            <CommentSubmit type="submit" disabled={!newComment.trim()}>
+              댓글 달기
+            </CommentSubmit>
+          </CommentForm>
         </CommentsSection>
       )}
     </Card>
