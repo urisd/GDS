@@ -2,7 +2,20 @@ import styled from 'styled-components';
 import { useState, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { toggleLike } from '../../reducer/feedSlice';
-import { FaHeart, FaRegHeart, FaRegComment, FaShareFromSquare, FaEllipsis } from 'react-icons/fa6';
+import {
+  FaHeart,
+  FaRegHeart,
+  FaRegComment,
+  FaShareFromSquare,
+  FaEllipsis,
+  FaImage,
+  FaChartBar,
+  FaBold,
+  FaItalic,
+  FaUnderline,
+  FaFaceSmile,
+  FaAt,
+} from 'react-icons/fa6';
 
 const Card = styled.article`
   background: ${({ theme }) => theme.bgSecondary};
@@ -11,12 +24,12 @@ const Card = styled.article`
   overflow: hidden;
   transition: border-color ${({ theme }) => theme.transition};
 
-  &:hover {
+  &:hover:not([data-artist="true"]) {
     border-color: ${({ theme }) => theme.borderLight};
   }
 
-  ${({ isArtist, hasArtistReply, theme }) =>
-    (isArtist || hasArtistReply) &&
+  ${({ isArtist, theme }) =>
+    isArtist &&
     `border-left: 3px solid ${theme.accent};`}
 `;
 
@@ -136,12 +149,18 @@ const CommentsSection = styled.div`
 
 const CommentForm = styled.form`
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 4px 6px;
-  border-radius: 10px;
-  border: 1px solid ${({ theme }) => theme.borderColor};
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+`;
+
+const CommentFormMain = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
   background: ${({ theme }) => theme.bgTertiary};
 `;
 
@@ -149,7 +168,7 @@ const CommentInput = styled.textarea`
   flex: 1;
   min-height: 40px;
   max-height: 72px;
-  padding: 8px 10px;
+  padding: 8px 0;
   border-radius: 0;
   border: none;
   background: transparent;
@@ -169,27 +188,68 @@ const CommentSubmit = styled.button`
   background: ${({ theme }) => theme.accent};
   color: #0f0f0f;
   border: none;
-  border-radius: 8px;
-  height: 40px;
-  padding: 0 16px;
-  font-size: 0.8rem;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  transition: all ${({ theme }) => theme.transition};
   white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1.2;
-  transition: opacity ${({ theme }) => theme.transition}, transform ${({ theme }) => theme.transition};
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+  }
 
   &:disabled {
-    opacity: 0.5;
-    cursor: default;
+    background: ${({ theme }) => theme.bgTertiary};
+    color: ${({ theme }) => theme.textTertiary};
+    cursor: not-allowed;
+    transform: none;
+    filter: none;
   }
+`;
 
-  &:not(:disabled):active {
-    transform: translateY(1px);
+const CommentBottom = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid ${({ theme }) => theme.borderColor};
+`;
+
+const CommentTools = styled.div`
+  display: flex;
+  gap: 4px;
+`;
+
+const CommentToolBtn = styled.button`
+  background: none;
+  border: none;
+  color: ${({ theme }) => theme.accentText};
+  font-size: 1rem;
+  padding: 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background ${({ theme }) => theme.transition};
+
+  &:hover {
+    background: ${({ theme }) => theme.accentDim};
   }
+`;
+
+const CommentMetaBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const CommentCharCount = styled.span`
+  font-size: 0.8rem;
+  color: ${({ isOver, theme }) => (isOver ? theme.dangerText : theme.textTertiary)};
 `;
 
 const CommentItem = styled.div`
@@ -290,6 +350,8 @@ const ViewAll = styled.button`
   }
 `;
 
+const MAX_COMMENT_CHARS = 500;
+
 const PostCard = ({ post }) => {
   const dispatch = useDispatch();
   const [showComments, setShowComments] = useState(post.comments && post.comments.length > 0);
@@ -309,6 +371,7 @@ const PostCard = ({ post }) => {
     e.preventDefault();
     const trimmed = newComment.trim();
     if (!trimmed) return;
+    if (trimmed.length > MAX_COMMENT_CHARS) return;
 
     const nextComment = {
       id: Date.now(),
@@ -336,7 +399,7 @@ const PostCard = ({ post }) => {
   };
 
   return (
-    <Card isArtist={post.isArtist} hasArtistReply={post.hasArtistReply}>
+    <Card isArtist={post.isArtist} data-artist={post.isArtist} hasArtistReply={post.hasArtistReply}>
       <CardHeader>
         <Avatar
           src={`https://ui-avatars.com/api/?name=${post.avatar}&background=${post.avatarBg?.replace('#', '') || '3b82f6'}&color=${post.avatarColor?.replace('#', '') || 'fff'}&bold=true&size=36`}
@@ -372,6 +435,41 @@ const PostCard = ({ post }) => {
 
       {showComments && (
         <CommentsSection>
+          <CommentForm onSubmit={handleAddComment}>
+            <AvatarSm
+              src="https://ui-avatars.com/api/?name=ME&background=3b82f6&color=fff&size=28"
+              alt="나"
+            />
+            <CommentFormMain>
+              <CommentInput
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="댓글을 입력해 보세요..."
+              />
+              <CommentBottom>
+                <CommentTools>
+                  <CommentToolBtn type="button" aria-label="사진">
+                    <FaImage />
+                  </CommentToolBtn>
+                  <CommentToolBtn type="button" aria-label="투표">
+                    <FaChartBar />
+                  </CommentToolBtn>
+                </CommentTools>
+                <CommentMetaBar>
+                  <CommentCharCount isOver={newComment.length > MAX_COMMENT_CHARS}>
+                    {newComment.length} / {MAX_COMMENT_CHARS}
+                  </CommentCharCount>
+                  <CommentSubmit
+                    type="submit"
+                    disabled={!newComment.trim() || newComment.length > MAX_COMMENT_CHARS}
+                  >
+                    게시
+                  </CommentSubmit>
+                </CommentMetaBar>
+              </CommentBottom>
+            </CommentFormMain>
+          </CommentForm>
+
           {comments.map((comment) => (
             <CommentItem key={comment.id} isArtist={comment.isArtist}>
               <AvatarSm
@@ -401,17 +499,6 @@ const PostCard = ({ post }) => {
           {commentCount > comments.length && (
             <ViewAll>댓글 {commentCount}개 모두 보기</ViewAll>
           )}
-
-          <CommentForm onSubmit={handleAddComment}>
-            <CommentInput
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="댓글을 입력해 보세요..."
-            />
-            <CommentSubmit type="submit" disabled={!newComment.trim()}>
-              댓글 달기
-            </CommentSubmit>
-          </CommentForm>
         </CommentsSection>
       )}
     </Card>
